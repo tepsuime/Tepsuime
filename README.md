@@ -1,7 +1,8 @@
+<!DOCTYPE html>
 <html lang="ru" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Староста Бот — Telegram Mini App</title>
   <!-- Подключение Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -32,7 +33,10 @@
   </script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    html { width: 100%; min-height: 100%; overflow-x: hidden; }
     body {
+      width: 100%; max-width: 100vw; overflow-x: hidden; padding-bottom: env(safe-area-inset-bottom);
+
       background-color: #090d16;
       color: #f8fafc;
       font-family: 'Inter', sans-serif;
@@ -48,6 +52,14 @@
     ::-webkit-scrollbar-thumb {
       background: #1e293b;
       border-radius: 9999px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    img, video, canvas, svg { max-width: 100%; }
+    input, select, textarea, button { min-width: 0; }
+    @media (max-width: 640px) {
+      main { padding-left: 12px !important; padding-right: 12px !important; }
+      .grid.grid-cols-12 > * { min-width: 0; }
+      input[type='time'] { width: 100%; }
     }
     .screen-fade {
       animation: fadeIn 0.2s ease-out;
@@ -383,34 +395,6 @@
 
       <!-- ГЛАВНЫЕ РАЗДЕЛЫ НА ПЕРВОЙ СТРАНИЦЕ: ПОСЕЩАЕМОСТЬ (ЗА ВСЁ ВРЕМЯ) НАРАВНЕ С ОБЪЯВЛЕНИЯМИ И ДЗ -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-        <!-- Карточка 1: Посещаемость всех участников за всё время -->
-        <div class="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-950/70 via-cardBg to-teal-950/50 border border-emerald-500/40 flex flex-col justify-between space-y-3 shadow-lg shadow-emerald-950/20">
-          <div>
-            <div class="flex items-center justify-between gap-2 mb-2">
-              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Журнал · За всё время
-              </span>
-              <span id="home-attendance-summary-pill" class="text-xs font-mono text-emerald-400 font-semibold">
-                0 уч. · 100%
-              </span>
-            </div>
-            <h3 class="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-              <span>📊 Посещаемость группы</span>
-            </h3>
-            <p id="home-attendance-subtext" class="text-xs text-slate-300 mt-1 leading-relaxed">
-              Статистика посещаемости всех участников за всё время учёбы, сводка за сегодня и история по датам.
-            </p>
-          </div>
-          <div class="pt-2 flex flex-wrap items-center gap-2">
-            <button type="button" onclick="App.openAttendanceJournalModal('alltime')" class="flex-1 py-2.5 px-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-xs transition text-center">
-              Открыть посещаемость (за всё время)
-            </button>
-            <button type="button" onclick="App.openAttendanceJournalModal('today')" class="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 border border-emerald-500/30 text-emerald-300 font-semibold text-xs transition">
-              За сегодня
-            </button>
-          </div>
-        </div>
-
         <!-- Карточка 2: Объявления группы (наравне с посещаемостью) -->
         <div class="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-sky-950/70 via-cardBg to-indigo-950/40 border border-sky-500/40 flex flex-col justify-between space-y-3 shadow-lg shadow-sky-950/20">
           <div>
@@ -729,7 +713,16 @@
           </div>
         </div>
 
-        <div id="bell-schedule-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2"></div>
+        <div class="space-y-3">
+          <section class="p-3 rounded-2xl border border-amber-500/30 bg-amber-950/15 space-y-2">
+            <div class="flex items-center justify-between gap-2"><h4 class="font-bold text-amber-300 text-sm">Понедельник</h4><button type="button" onclick="App.openBellScheduleModal(null, 'monday')" class="text-xs px-3 py-2 rounded-lg bg-slate-900 border border-amber-500/30 text-amber-200">Изменить звонки</button></div>
+            <div id="bell-schedule-monday-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2"></div>
+          </section>
+          <section class="p-3 rounded-2xl border border-teal-500/30 bg-teal-950/15 space-y-2">
+            <div class="flex items-center justify-between gap-2"><h4 class="font-bold text-teal-300 text-sm">Вторник — суббота</h4><button type="button" onclick="App.openBellScheduleModal(null, 'other')" class="text-xs px-3 py-2 rounded-lg bg-slate-900 border border-teal-500/30 text-teal-200">Изменить звонки</button></div>
+            <div id="bell-schedule-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2"></div>
+          </section>
+        </div>
       </div>
 
       <!-- Фильтр недель -->
@@ -1145,6 +1138,8 @@
 
         // Изначально список участников группы полностью пуст
         students: [],
+        bellScheduleMonday: null, // отдельные звонки понедельника; null = использовать стандартные
+        pendingBellDay: 'other',
         bellSchedule: [
           { lessonNum: 0, start: '08:30', end: '09:00', breakMinutes: 0 },
           { lessonNum: 1, start: '09:00', end: '10:30', breakMinutes: 10 },
@@ -1229,6 +1224,7 @@
           stepsCompleted: JSON.parse(JSON.stringify(this.state.stepsCompleted || { invite: false, schedule: false, autoPoll: true })),
           students: JSON.parse(JSON.stringify(this.state.students || [])),
           bellSchedule: JSON.parse(JSON.stringify(this.state.bellSchedule || this.getDefaultBellSchedule())),
+          bellScheduleMonday: this.state.bellScheduleMonday ? JSON.parse(JSON.stringify(this.state.bellScheduleMonday)) : null,
           classes: JSON.parse(JSON.stringify(this.state.classes || [])),
           homeworks: JSON.parse(JSON.stringify(this.state.homeworks || [])),
           attendanceHistory: JSON.parse(JSON.stringify(this.state.attendanceHistory || [])),
@@ -1256,6 +1252,7 @@
         this.state.stepsCompleted = JSON.parse(JSON.stringify(grp.stepsCompleted || { invite: false, schedule: false, autoPoll: true }));
         this.state.students = JSON.parse(JSON.stringify(grp.students || []));
         this.state.bellSchedule = JSON.parse(JSON.stringify(grp.bellSchedule || this.getDefaultBellSchedule()));
+      this.state.bellScheduleMonday = grp.bellScheduleMonday ? JSON.parse(JSON.stringify(grp.bellScheduleMonday)) : null;
         this.state.classes = JSON.parse(JSON.stringify(grp.classes || []));
         this.state.homeworks = JSON.parse(JSON.stringify(grp.homeworks || []));
         this.state.attendanceHistory = JSON.parse(JSON.stringify(grp.attendanceHistory || []));
@@ -1289,6 +1286,7 @@
             autoAttendanceEnabled: this.state.autoAttendanceEnabled,
             students: this.state.students,
             bellSchedule: this.state.bellSchedule,
+            bellScheduleMonday: this.state.bellScheduleMonday,
             classes: this.state.classes,
             homeworks: this.state.homeworks,
             attendanceHistory: this.state.attendanceHistory,
@@ -2273,6 +2271,7 @@
         const file = event.target.files && event.target.files[0];
         if (!file) return;
         const imageUrl = URL.createObjectURL(file);
+        event.target.value = '';
 
         this.state.students.forEach(s => {
           s.status = 'На паре (по фото)';
@@ -2310,13 +2309,11 @@
       // =================================================================
       // РАСПИСАНИЕ ЗВОНКОВ И ПЕРЕМЕН (ИИ ПО ФОТО + РУЧНОЙ ВВОД)
       // =================================================================
-      getBellTimeForLesson(lessonNum) {
-        const bells = this.state.bellSchedule || this.getDefaultBellSchedule();
+      getBellTimeForLesson(lessonNum, day = '') {
+        const isMonday = String(day).toLowerCase().includes('понедель') || String(day).toLowerCase() === 'monday';
+        const bells = (isMonday && this.state.bellScheduleMonday) || this.state.bellSchedule || this.getDefaultBellSchedule();
         const found = bells.find(b => Number(b.lessonNum) === Number(lessonNum));
-        if (found) {
-          return `${found.start} — ${found.end}`;
-        }
-        return '09:00 — 10:30';
+        return found ? `${found.start} — ${found.end}` : '09:00 — 10:30';
       },
 
       calcBreakMinutes(endStr, nextStartStr) {
@@ -2331,26 +2328,19 @@
       },
 
       renderBellSchedule() {
-        const container = document.getElementById('bell-schedule-list');
-        if (!container) return;
-        const bells = this.state.bellSchedule || this.getDefaultBellSchedule();
-
-        container.innerHTML = bells.map((b, idx) => {
-          const nextBell = bells[idx + 1];
-          const computedBreak = nextBell ? this.calcBreakMinutes(b.end, nextBell.start) : (b.breakMinutes || 0);
-          const breakLabel = computedBreak > 0 ? `перемена ${computedBreak} мин` : 'без перемены';
-          return `
-            <div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2">
-              <div>
-                <span class="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[11px] font-bold">
-                  ${b.lessonNum === 0 ? '0 пара / Кл. час' : `${b.lessonNum} пара`}
-                </span>
-                <p class="text-xs sm:text-sm font-mono font-bold text-white mt-1">${b.start} — ${b.end}</p>
-              </div>
-              <span class="text-[11px] text-slate-400 text-right">${breakLabel}</span>
-            </div>
-          `;
-        }).join('');
+        const renderInto = (id, bells) => {
+          const container = document.getElementById(id);
+          if (!container) return;
+          container.innerHTML = bells.map((b, idx) => {
+            const nextBell = bells[idx + 1];
+            const computedBreak = nextBell ? this.calcBreakMinutes(b.end, nextBell.start) : (b.breakMinutes || 0);
+            const breakLabel = computedBreak > 0 ? `перемена ${computedBreak} мин` : 'без перемены';
+            return `<div class="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-2"><div><span class="px-2 py-0.5 rounded-md bg-teal-500/15 text-teal-300 border border-teal-500/30 text-[11px] font-bold">${b.lessonNum === 0 ? '0 пара / Кл. час' : `${b.lessonNum} пара`}</span><p class="text-xs sm:text-sm font-mono font-bold text-white mt-1">${b.start} — ${b.end}</p></div><span class="text-[11px] text-slate-400 text-right">${breakLabel}</span></div>`;
+          }).join('');
+        };
+        const regular = this.state.bellSchedule || this.getDefaultBellSchedule();
+        renderInto('bell-schedule-list', regular);
+        renderInto('bell-schedule-monday-list', this.state.bellScheduleMonday || regular);
       },
 
       triggerBellPhotoUpload() {
@@ -2361,6 +2351,30 @@
         const input = document.getElementById('bell-schedule-photo-input');
         input.value = '';
         input.click();
+      },
+
+      async prepareRecognitionImage(file) {
+        // Увеличиваем читаемость фото: ограничиваем размер, повышаем контраст и убираем цветовой шум.
+        try {
+          const bitmap = await createImageBitmap(file);
+          const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          for (let i = 0; i < image.data.length; i += 4) {
+            const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+            const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.18 + 128));
+            image.data[i] = image.data[i + 1] = image.data[i + 2] = contrast;
+          }
+          ctx.putImageData(image, 0, 0);
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+          bitmap.close?.();
+          if (blob && blob.size) return { blob, mimeType: 'image/jpeg', base64: await this.fileToBase64(blob) };
+        } catch (e) { /* fallback to the original image */ }
+        return { blob: file, mimeType: file.type || 'image/jpeg', base64: await this.fileToBase64(file) };
       },
 
       fileToBase64(file) {
@@ -2424,6 +2438,7 @@
         const file = event.target.files && event.target.files[0];
         if (!file) return;
         const imageUrl = URL.createObjectURL(file);
+        event.target.value = '';
 
         this.openModal('ИИ-распознавание расписания звонков...', `
           <div class="space-y-4">
@@ -2439,9 +2454,11 @@
         `);
 
         let parsedBells = null;
+        let preparedImage = null;
 
         try {
-          const base64Data = await this.fileToBase64(file);
+          preparedImage = await this.prepareRecognitionImage(file);
+          const base64Data = preparedImage.base64;
           const schema = {
             type: "ARRAY",
             items: {
@@ -2456,7 +2473,7 @@
             }
           };
           const prompt = "Распознай расписание звонков с фотографии. Верни JSON-массив всех пар (lessonNum: номер пары 0, 1, 2, 3..., start: время начала ЧЧ:ММ, end: время окончания ЧЧ:ММ, breakMinutes: перемена в минутах после пары).";
-          const aiResult = await this.callGeminiVisionJSON(prompt, base64Data, file.type, schema);
+          const aiResult = await this.callGeminiVisionJSON(prompt, base64Data, preparedImage.mimeType, schema);
           if (Array.isArray(aiResult) && aiResult.length > 0) {
             parsedBells = aiResult;
           }
@@ -2469,7 +2486,7 @@
           try {
             if (window.Tesseract) {
               const res = await Promise.race([
-                window.Tesseract.recognize(file, 'rus+eng', {}),
+                window.Tesseract.recognize((preparedImage && preparedImage.blob) ? preparedImage.blob : file, 'rus+eng', { preserve_interword_spaces: '1' }),
                 new Promise((_, rej) => setTimeout(() => rej(new Error('ocr_timeout')), 8000))
               ]);
               const text = res?.data?.text || '';
@@ -2496,17 +2513,17 @@
           parsedBells[i].breakMinutes = this.calcBreakMinutes(parsedBells[i].end, parsedBells[i + 1].start);
         }
 
-        this.openBellScheduleModal(parsedBells, imageUrl);
+        this.openBellScheduleModal(parsedBells, 'other', imageUrl);
       },
 
-      openBellScheduleModal(customBells = null, imageUrl = '') {
+      openBellScheduleModal(customBells = null, day = 'other', imageUrl = '') {
         if (!this.canManageGroup()) {
           this.showToast('Изменять расписание звонков может только Староста или Зам. старосты');
           return;
         }
-        this.state.pendingBellSchedule = customBells
-          ? JSON.parse(JSON.stringify(customBells))
-          : JSON.parse(JSON.stringify(this.state.bellSchedule || this.getDefaultBellSchedule()));
+        this.state.pendingBellDay = day === 'monday' ? 'monday' : 'other';
+        const sourceBells = this.state.pendingBellDay === 'monday' ? (this.state.bellScheduleMonday || this.state.bellSchedule || this.getDefaultBellSchedule()) : (this.state.bellSchedule || this.getDefaultBellSchedule());
+        this.state.pendingBellSchedule = customBells ? JSON.parse(JSON.stringify(customBells)) : JSON.parse(JSON.stringify(sourceBells));
 
         this.renderBellModalContent(imageUrl);
       },
@@ -2535,7 +2552,7 @@
           </div>
         `).join('');
 
-        this.openModal('Настройка расписания звонков и перемен', `
+        this.openModal(this.state.pendingBellDay === 'monday' ? 'Звонки — понедельник' : 'Звонки — остальные дни', `
           <div class="space-y-3.5">
             ${imageUrl ? `
               <div class="flex items-center gap-3 p-2.5 rounded-xl bg-slate-900 border border-teal-500/30">
@@ -2593,16 +2610,22 @@
           .slice()
           .sort((a, b) => Number(a.lessonNum) - Number(b.lessonNum));
 
+        const validTime = value => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || ''));
+        if (!cleaned.length || cleaned.some(b => !validTime(b.start) || !validTime(b.end) || b.start >= b.end)) {
+          this.showToast('Проверьте время: начало должно быть раньше окончания.');
+          return;
+        }
         for (let i = 0; i < cleaned.length - 1; i++) {
           cleaned[i].breakMinutes = this.calcBreakMinutes(cleaned[i].end, cleaned[i + 1].start);
         }
 
-        this.state.bellSchedule = cleaned;
+        if (this.state.pendingBellDay === 'monday') this.state.bellScheduleMonday = cleaned;
+        else this.state.bellSchedule = cleaned;
 
         // Синхронизируем время существующих пар в расписании с новыми звонками
         this.state.classes.forEach(c => {
           if (c.lessonNum !== undefined && c.lessonNum !== null) {
-            c.time = this.getBellTimeForLesson(c.lessonNum);
+            c.time = this.getBellTimeForLesson(c.lessonNum, c.day);
           }
         });
 
@@ -2610,7 +2633,7 @@
         this.renderBellSchedule();
         this.renderSchedule();
         this.closeModal();
-        this.showToast('Расписание звонков и перемен сохранено!');
+        this.showToast(this.state.pendingBellDay === 'monday' ? 'Звонки понедельника сохранены!' : 'Звонки остальных дней сохранены!');
       },
 
       // =================================================================
@@ -2643,10 +2666,12 @@
         `);
 
         let extractedClasses = null;
+        let preparedImage = null;
 
         // 1. Полноценное мультимодальное ИИ-распознавание всех строк расписания с фото через Gemini Vision
         try {
-          const base64Data = await this.fileToBase64(file);
+          preparedImage = await this.prepareRecognitionImage(file);
+          const base64Data = preparedImage.base64;
           const schema = {
             type: "ARRAY",
             items: {
@@ -2674,7 +2699,7 @@
 - room: номер кабинета или "с/зал" (например "Каб. 204")
 - weekType: "both" | "1" | "2"`;
 
-          const aiItems = await this.callGeminiVisionJSON(prompt, base64Data, file.type, schema);
+          const aiItems = await this.callGeminiVisionJSON(prompt, base64Data, preparedImage.mimeType, schema);
           if (Array.isArray(aiItems) && aiItems.length > 0) {
             extractedClasses = aiItems.map((item, idx) => {
               const num = item.lessonNum !== undefined && item.lessonNum !== null ? Number(item.lessonNum) : (idx + 1);
@@ -2689,7 +2714,7 @@
                 id: Date.now() + idx,
                 day: item.day || 'Понедельник',
                 lessonNum: num,
-                time: this.getBellTimeForLesson(num),
+                time: this.getBellTimeForLesson(num, item.day),
                 subject: (item.subject || 'Предмет').trim(),
                 teacher: teacherStr,
                 room: combinedRoom,
@@ -2708,7 +2733,7 @@
           try {
             if (window.Tesseract) {
               const result = await Promise.race([
-                window.Tesseract.recognize(file, 'rus', {}),
+                window.Tesseract.recognize((preparedImage && preparedImage.blob) ? preparedImage.blob : file, 'rus', { preserve_interword_spaces: '1' }),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
               ]);
               if (result && result.data && result.data.text) {
@@ -2792,7 +2817,7 @@
               id: Date.now() + results.length,
               day: currentDay,
               lessonNum: currentLessonNum,
-              time: this.getBellTimeForLesson(currentLessonNum),
+              time: this.getBellTimeForLesson(currentLessonNum, currentDay),
               subject: cleanedSubject,
               room: room,
               weekType: weekType,
