@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="ru" class="dark">
 <head>
   <meta charset="UTF-8" />
@@ -4087,8 +4086,3 @@
   </script>
 </body>
 </html>
-
-<!--
-**tepsuime/Tepsuime** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-
-Here are some ideas to get you started:
