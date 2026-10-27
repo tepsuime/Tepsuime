@@ -1114,6 +1114,7 @@
         pollLeadTimes: ['за 15 мин', 'за 10 мин', 'за 5 мин', 'в начале пары'],
         pollLeadIndex: 0,
         currentWeekNumber: 1,
+        autoWeekEnabled: true,
         scheduleWeekFilter: 'all',
         homeworkWeekFilter: 'all',
 
@@ -1203,6 +1204,8 @@
         this.renderHolidays();
         this.updateProgressSteps();
         this.updateWelcomeScreenState();
+        // Авто-смена ★/★★ недели по календарю, если в расписании есть разделение
+        try { this.applyAutoWeekIfNeeded(); this.syncWeekBadgeUI(); } catch (e) {}
       },
 
       // Сохранение текущей активной группы в изолированный словарь groups[inviteCode]
@@ -1219,6 +1222,7 @@
           inviteCode: code,
           semesterDates: this.state.semesterDates,
           currentWeekNumber: this.state.currentWeekNumber,
+          autoWeekEnabled: this.state.autoWeekEnabled !== false,
           autoAttendanceEnabled: this.state.autoAttendanceEnabled,
           stepsCompleted: JSON.parse(JSON.stringify(this.state.stepsCompleted || { invite: false, schedule: false, autoPoll: true })),
           students: JSON.parse(JSON.stringify(this.state.students || [])),
@@ -1247,6 +1251,7 @@
         this.state.inviteCode = cleanCode;
         this.state.semesterDates = grp.semesterDates || '01.09.2026 — 31.12.2026';
         this.state.currentWeekNumber = grp.currentWeekNumber || 1;
+        this.state.autoWeekEnabled = grp.autoWeekEnabled !== false;
         this.state.autoAttendanceEnabled = grp.autoAttendanceEnabled !== undefined ? grp.autoAttendanceEnabled : true;
         this.state.stepsCompleted = JSON.parse(JSON.stringify(grp.stepsCompleted || { invite: false, schedule: false, autoPoll: true }));
         this.state.students = JSON.parse(JSON.stringify(grp.students || []));
@@ -2352,24 +2357,141 @@
         input.click();
       },
 
+
+      // Жёсткая очистка OCR-мусора: только буквы/цифры/пробелы/дефисы, без «» || странных знаков
+      sanitizeRecognizedText(raw) {
+        if (!raw) return '';
+        let s = String(raw)
+          .replace(/[«»„“”‘’‹›]/g, ' ')
+          .replace(/[|¦∥ǁ]/g, ' ')
+          .replace(/[•·∙●○◦]/g, ' ')
+          .replace(/[\/\\]+/g, '/')
+          .replace(/[_=~`^]+/g, ' ')
+          .replace(/[★☆✦✧✪✩*]+/g, ' ') // звёзды убираем из названия (weekType уже отдельно)
+          .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
+          // оставляем кириллицу, латиницу, цифры, пробел, дефис, точку, запятую, скобки, слэш, №
+          .replace(/[^\u0400-\u04FFa-zA-Z0-9\s\-.,()\/№:;]/g, ' ')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+
+        // частые OCR-ошибки (кириллица ↔ латиница)
+        const fixes = [
+          [/ицт/gi, ''],
+          [/HEECH/gi, ''],
+          [/HEE[CС]H/gi, ''],
+          [/\bов\s*:\s*\d*о?\b/gi, ''],
+          [/\bое\s*:\s*\d+/gi, ''],
+          [/^[:;.,\-\/\s]+/, ''],
+          [/[:;.,\-\/\s]+$/, ''],
+          [/\s*[:|]\s*/g, ' '],
+          [/\s{2,}/g, ' ']
+        ];
+        fixes.forEach(([re, rep]) => { s = s.replace(re, rep); });
+        s = s.trim();
+
+        // если почти нет букв — считаем мусором
+        const letters = (s.match(/[\u0400-\u04FFa-zA-Z]/g) || []).length;
+        if (letters < 2) return '';
+        // слишком короткие обрывки
+        if (s.length < 2) return '';
+        return s;
+      },
+
+      sanitizeSubjectName(raw) {
+        let s = this.sanitizeRecognizedText(raw);
+        // убираем хвосты вида "Каб. 204", "ауд. 12", чистое время
+        s = s
+          .replace(/\b(каб\.?|ауд\.?|комн\.?|зал)\s*[\d\/\-]*\s*$/i, '')
+          .replace(/\b\d{1,2}[:.]\d{2}\s*[-—–]\s*\d{1,2}[:.]\d{2}\b/g, '')
+          .replace(/\b\d{3}\b\s*$/g, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+        return s;
+      },
+
+      // Автоопределение учебной недели (★1 / ★★2) по номеру недели года
+      detectAcademicWeekNumber(date = new Date()) {
+        // ISO week number
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        // чётная = 2-я, нечётная = 1-я (можно переключить вручную)
+        return (weekNo % 2 === 1) ? 1 : 2;
+      },
+
+      applyAutoWeekIfNeeded(force = false) {
+        // Включаем авто-смену только если в расписании реально есть разделение по ★ / ★★
+        const hasSplit = (this.state.classes || []).some(c => c.weekType === '1' || c.weekType === '2');
+        if (!hasSplit && !force) return;
+        if (this.state.autoWeekEnabled === false) return;
+        const detected = this.detectAcademicWeekNumber();
+        if (detected !== this.state.currentWeekNumber) {
+          this.state.currentWeekNumber = detected;
+          this.saveState();
+          this.syncWeekBadgeUI();
+        }
+      },
+
+      syncWeekBadgeUI() {
+        const badge = document.getElementById('current-week-star-badge');
+        if (badge) {
+          badge.textContent = this.state.currentWeekNumber === 1 ? '★ 1-я неделя' : '★★ 2-я неделя';
+        }
+        const hint = document.getElementById('hw-active-week-hint');
+        if (hint) {
+          hint.textContent = `Сейчас идёт: ${this.state.currentWeekNumber === 1 ? '★ 1-я неделя' : '★★ 2-я неделя'}`;
+        }
+      },
+
+      // День предмета по выбранной неделе (для корректного переноса ДЗ)
+      findDayForSubjectOnWeek(subject, weekType) {
+        if (!subject) return null;
+        const subj = subject.trim().toLowerCase();
+        const matches = (this.state.classes || []).filter(c => {
+          if (!c.subject) return false;
+          const same = c.subject.trim().toLowerCase() === subj;
+          if (!same) return false;
+          if (weekType === 'both' || weekType === 'all') return true;
+          return c.weekType === 'both' || c.weekType === weekType;
+        });
+        if (matches.length === 0) return null;
+        // приоритет: точное совпадение недели
+        const exact = matches.find(c => c.weekType === weekType);
+        return (exact || matches[0]).day;
+      },
+
       async prepareRecognitionImage(file) {
-        // Увеличиваем читаемость фото: ограничиваем размер, повышаем контраст и убираем цветовой шум.
+        // Увеличиваем читаемость фото: масштаб, сильный контраст, бинаризация для OCR.
         try {
           const bitmap = await createImageBitmap(file);
-          const scale = Math.min(1, 2200 / Math.max(bitmap.width, bitmap.height));
+          const scale = Math.min(1, 2400 / Math.max(bitmap.width, bitmap.height));
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(bitmap.width * scale));
           canvas.height = Math.max(1, Math.round(bitmap.height * scale));
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
           ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
           const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          // средняя яркость для адаптивного порога
+          let sum = 0;
+          for (let i = 0; i < image.data.length; i += 4) {
+            sum += image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+          }
+          const mean = sum / (image.data.length / 4);
+          const thr = Math.max(90, Math.min(170, mean * 0.92));
           for (let i = 0; i < image.data.length; i += 4) {
             const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
-            const contrast = Math.max(0, Math.min(255, (gray - 128) * 1.18 + 128));
-            image.data[i] = image.data[i + 1] = image.data[i + 2] = contrast;
+            // усиленный контраст + мягкая бинаризация
+            let v = (gray - mean) * 1.55 + mean;
+            v = Math.max(0, Math.min(255, v));
+            // чуть «жёстче» края текста
+            if (v > thr + 18) v = 255;
+            else if (v < thr - 18) v = 0;
+            image.data[i] = image.data[i + 1] = image.data[i + 2] = v;
           }
           ctx.putImageData(image, 0, 0);
-          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.93));
           bitmap.close?.();
           if (blob && blob.size) return { blob, mimeType: 'image/jpeg', base64: await this.fileToBase64(blob) };
         } catch (e) { /* fallback to the original image */ }
@@ -2471,7 +2593,7 @@
               propertyOrdering: ["lessonNum", "start", "end", "breakMinutes"]
             }
           };
-          const prompt = "Распознай расписание звонков с фотографии. Верни JSON-массив всех пар (lessonNum: номер пары 0, 1, 2, 3..., start: время начала ЧЧ:ММ, end: время окончания ЧЧ:ММ, breakMinutes: перемена в минутах после пары).";
+          const prompt = "Распознай ТОЛЬКО расписание звонков (время пар) с фото. Игнорируй названия предметов и дни недели. Верни JSON-массив пар: lessonNum (0,1,2...), start (ЧЧ:ММ), end (ЧЧ:ММ), breakMinutes (минуты перемены после пары, если видно). Время только цифрами, формат 08:55. Не добавляй лишний текст.";
           const aiResult = await this.callGeminiVisionJSON(prompt, base64Data, preparedImage.mimeType, schema);
           if (Array.isArray(aiResult) && aiResult.length > 0) {
             parsedBells = aiResult;
@@ -2686,41 +2808,48 @@
               propertyOrdering: ["day", "lessonNum", "subject", "teacher", "room", "weekType"]
             }
           };
-          const prompt = `Внимательно прочитай фотографию расписания занятий и перенеси АБСОЛЮТНО ВСЕ пары по всем дням недели (Понедельник, Вторник, Среда, Четверг, Пятница, Суббота).
-Если в одной ячейке (на одной паре) указаны два предмета со звёздочками или через дробь (например: 1 звезда ★ или * — это 1-я неделя, 2 звезды ★★ или ** — это 2-я неделя), обязательно создай ДВЕ отдельные записи с одинаковым day и lessonNum: одну с weekType: "1", другую с weekType: "2" и соответствующими им кабинетами и преподавателями.
-Если звезда не указана — ставь weekType: "both".
-Пропускай пустые строки (где прочерк "—").
+          const prompt = `Ты распознаёшь учебное расписание с фото. Верни ТОЛЬКО чистые данные.
+
+СТРОГИЕ ПРАВИЛА:
+1) subject — только нормальное название предмета на русском (например: «История», «Математика», «Иностранный язык», «Физкультура»). БЕЗ звёзд, БЕЗ кавычек «», БЕЗ символов | || • :, БЕЗ обрывков OCR вроде «ов:2о», «HEECH», «ицт».
+2) Если текст нечитаем или это мусор — пропусти строку, не выдумывай.
+3) Если в одной паре два предмета со звёздами (★/* = 1-я неделя, ★★/** = 2-я неделя) — сделай ДВЕ записи с одинаковыми day и lessonNum, weekType "1" и "2".
+4) Без звёзд — weekType "both". Пустые ячейки и прочерки "—" пропускай.
+5) teacher — только ФИО или пустая строка. room — только номер кабинета / "с/зал".
+
 Поля:
-- day: "Понедельник" | "Вторник" | "Среда" | "Четверг" | "Пятница" | "Суббота"
-- lessonNum: номер урока/пары (0, 1, 2, 3, 4, 5...)
-- subject: точное название предмета без звёздочек
-- teacher: ФИО преподавателя (или "" если нет)
-- room: номер кабинета или "с/зал" (например "Каб. 204")
-- weekType: "both" | "1" | "2"`;
+- day: "Понедельник"|"Вторник"|"Среда"|"Четверг"|"Пятница"|"Суббота"
+- lessonNum: число (0..10)
+- subject: чистое название предмета
+- teacher: строка
+- room: строка
+- weekType: "both"|"1"|"2"`;
 
           const aiItems = await this.callGeminiVisionJSON(prompt, base64Data, preparedImage.mimeType, schema);
           if (Array.isArray(aiItems) && aiItems.length > 0) {
             extractedClasses = aiItems.map((item, idx) => {
               const num = item.lessonNum !== undefined && item.lessonNum !== null ? Number(item.lessonNum) : (idx + 1);
-              const roomStr = (item.room || '').trim();
-              const teacherStr = (item.teacher || '').trim();
+              const roomStr = this.sanitizeRecognizedText(item.room || '');
+              const teacherStr = this.sanitizeRecognizedText(item.teacher || '');
+              const subjectClean = this.sanitizeSubjectName(item.subject || '');
+              if (!subjectClean) return null;
               const combinedRoom = [
                 roomStr ? (roomStr.toLowerCase().includes('каб') || roomStr.toLowerCase().includes('зал') ? roomStr : `Каб. ${roomStr}`) : '',
                 teacherStr && teacherStr !== '—' ? teacherStr : ''
-              ].filter(Boolean).join(' · ') || 'Каб. не указан';
+              ].filter(Boolean).join(' · ') || 'Каб. по расписанию';
 
               return {
                 id: Date.now() + idx,
                 day: item.day || 'Понедельник',
                 lessonNum: num,
                 time: this.getBellTimeForLesson(num, item.day),
-                subject: (item.subject || 'Предмет').trim(),
+                subject: subjectClean,
                 teacher: teacherStr,
                 room: combinedRoom,
                 weekType: item.weekType === '1' || item.weekType === '2' ? item.weekType : 'both',
                 autoSend: true
               };
-            });
+            }).filter(Boolean);
           }
         } catch (err) {
           extractedClasses = null;
@@ -2806,12 +2935,14 @@
           // Извлекаем номер кабинета в конце строки
           const roomMatch = content.match(/(\d{3}(?:\s*[/,]\s*\d{3})?|с\/зал|зал)\s*$/i);
           const room = roomMatch ? `Каб. ${roomMatch[1]}` : 'Каб. по расписанию';
-          const cleanedSubject = content
+          let cleanedSubject = content
             .replace(/(\d{3}(?:\s*[/,]\s*\d{3})?|с\/зал|зал)\s*$/i, '')
             .replace(/[★☆*]+/g, '')
             .trim();
+          cleanedSubject = this.sanitizeSubjectName(cleanedSubject);
 
-          if (cleanedSubject.length >= 3) {
+          // отсекаем OCR-мусор
+          if (cleanedSubject.length >= 2 && !/^(пара|урок|предмет|каб)/i.test(cleanedSubject)) {
             results.push({
               id: Date.now() + results.length,
               day: currentDay,
@@ -2939,8 +3070,9 @@
         }
       },
 
-      updatePendingClassSubject(idx, val) {
+            updatePendingClassSubject(idx, val) {
         if (this.state.pendingAIClasses[idx]) {
+          // при ручном вводе не режем «на лету», финальная очистка — в confirmAISchedule
           this.state.pendingAIClasses[idx].subject = val;
         }
       },
@@ -2961,17 +3093,30 @@
           this.showToast('Изменять расписание уроков может только Староста или Зам. старосты');
           return;
         }
-        // Заменяем расписание на распознанный полный недельный набор пар
-        this.state.classes = [...this.state.pendingAIClasses];
+        // Финальная очистка названий предметов от OCR-мусора перед сохранением
+        const cleaned = (this.state.pendingAIClasses || []).map(c => {
+          const subject = this.sanitizeSubjectName(c.subject || '');
+          if (!subject) return null;
+          return { ...c, subject, room: this.sanitizeRecognizedText(c.room || '') || 'Каб. по расписанию' };
+        }).filter(Boolean);
+
+        this.state.classes = cleaned;
         this.state.pendingAIClasses = [];
         this.state.stepsCompleted.schedule = true;
+        // Если есть ★/★★ — включаем авто-смену учебной недели
+        const hasSplit = cleaned.some(c => c.weekType === '1' || c.weekType === '2');
+        if (hasSplit) {
+          this.state.autoWeekEnabled = true;
+          this.applyAutoWeekIfNeeded(true);
+        }
         this.saveState();
         this.updateProgressSteps();
+        this.syncWeekBadgeUI();
         this.renderSchedule();
         this.populateInlineHwSubjects();
         this.closeModal();
         this.switchTab('schedule');
-        this.showToast(`Полное расписание (${this.state.classes.length} пар) со звёздами ★ и ★★ сохранено!`);
+        this.showToast(`Расписание сохранено (${cleaned.length} пар)${hasSplit ? ' · авто-смена ★/★★ недели включена' : ''}`);
       },
 
       setScheduleWeekFilter(filterVal) {
@@ -3220,12 +3365,17 @@
 
       submitHomeworkInline(event) {
         event.preventDefault();
-        const day = document.getElementById('inline-hw-day').value;
+        let day = document.getElementById('inline-hw-day').value;
         const weekType = document.getElementById('inline-hw-week').value;
         const due = document.getElementById('inline-hw-due').value.trim() || 'К следующему уроку';
         const subject = document.getElementById('inline-hw-subject').value.trim();
         const text = document.getElementById('inline-hw-text').value.trim();
         if (!subject || !text) return;
+
+        // Если недели разделены — день берём из расписания именно для этой недели
+        // (История ★1 в четверг, а на ★★2 может быть в другой день)
+        const scheduleDay = this.findDayForSubjectOnWeek(subject, weekType === 'both' ? 'both' : weekType);
+        if (scheduleDay) day = scheduleDay;
 
         const author = this.canManageGroup()
           ? `${this.state.leaderName} (${this.isLeader() ? 'Староста' : 'Зам'})`
@@ -3246,7 +3396,7 @@
         document.getElementById('inline-hw-text').value = '';
         this.saveState();
         this.renderHomework();
-        this.showToast(`ДЗ по предмету «${subject}» (${weekType === '1' ? '★ 1-я нед.' : weekType === '2' ? '★★ 2-я нед.' : 'обе нед.'}) добавлено!`);
+        this.showToast(`ДЗ «${subject}» → ${day} (${weekType === '1' ? '★ 1-я' : weekType === '2' ? '★★ 2-я' : 'обе нед.'})`);
       },
 
       openAddHomeworkModal() {
@@ -3294,12 +3444,15 @@
 
       submitHomeworkModal(event) {
         event.preventDefault();
-        const day = document.getElementById('modal-hw-day').value;
+        let day = document.getElementById('modal-hw-day').value;
         const weekType = document.getElementById('modal-hw-week').value;
         const subject = document.getElementById('modal-hw-subject').value.trim();
         const due = document.getElementById('modal-hw-due').value.trim() || 'К следующему уроку';
         const text = document.getElementById('modal-hw-text').value.trim();
         if (!subject || !text) return;
+
+        const scheduleDay = this.findDayForSubjectOnWeek(subject, weekType === 'both' ? 'both' : weekType);
+        if (scheduleDay) day = scheduleDay;
 
         const author = this.canManageGroup()
           ? `${this.state.leaderName} (${this.isLeader() ? 'Староста' : 'Зам'})`
@@ -3320,7 +3473,7 @@
         this.saveState();
         this.renderHomework();
         this.closeModal();
-        this.showToast(`Домашнее задание по предмету «${subject}» добавлено!`);
+        this.showToast(`ДЗ «${subject}» → ${day} (${weekType === '1' ? '★ 1-я' : weekType === '2' ? '★★ 2-я' : 'обе нед.'})`);
       },
 
       toggleHomeworkDone(hwId) {
