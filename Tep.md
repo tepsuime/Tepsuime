@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="ru" class="dark">
 <head>
   <meta charset="UTF-8" />
