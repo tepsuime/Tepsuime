@@ -2367,20 +2367,23 @@
           .replace(/[•·∙●○◦]/g, ' ')
           .replace(/[\/\\]+/g, '/')
           .replace(/[_=~`^]+/g, ' ')
-          .replace(/[★☆✦✧✪✩*]+/g, ' ') // звёзды убираем из названия (weekType уже отдельно)
+          .replace(/[★☆✦✧✪✩*]+/g, ' ')
           .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
-          // оставляем кириллицу, латиницу, цифры, пробел, дефис, точку, запятую, скобки, слэш, №
           .replace(/[^\u0400-\u04FFa-zA-Z0-9\s\-.,()\/№:;]/g, ' ')
           .replace(/\s{2,}/g, ' ')
           .trim();
 
-        // частые OCR-ошибки (кириллица ↔ латиница)
         const fixes = [
           [/ицт/gi, ''],
           [/HEECH/gi, ''],
           [/HEE[CС]H/gi, ''],
           [/\bов\s*:\s*\d*о?\b/gi, ''],
           [/\bое\s*:\s*\d+/gi, ''],
+          [/\bо\s*осы\b/gi, ''],
+          [/\bенто\b/gi, ''],
+          [/\bоена\b/gi, ''],
+          [/\bпаче\b/gi, ''],
+          [/\bлисе\b/gi, ''],
           [/^[:;.,\-\/\s]+/, ''],
           [/[:;.,\-\/\s]+$/, ''],
           [/\s*[:|]\s*/g, ' '],
@@ -2389,24 +2392,101 @@
         fixes.forEach(([re, rep]) => { s = s.replace(re, rep); });
         s = s.trim();
 
-        // если почти нет букв — считаем мусором
         const letters = (s.match(/[\u0400-\u04FFa-zA-Z]/g) || []).length;
         if (letters < 2) return '';
-        // слишком короткие обрывки
         if (s.length < 2) return '';
         return s;
       },
 
+      // Словарь типичных предметов для исправления OCR-мусора
+      KNOWN_SUBJECTS: [
+        'Классный час', 'Физика', 'Биология', 'Математика', 'Обществознание',
+        'Литература', 'Физическая культура', 'Физкультура', 'Иностранный язык',
+        'Русский язык', 'География', 'Информатика', 'История', 'Химия',
+        'ОБЖ', 'Черчение', 'Технология', 'Музыка', 'ИЗО', 'Астрономия',
+        'Экономика', 'Право', 'Алгебра', 'Геометрия', 'Английский язык',
+        'Немецкий язык', 'Французский язык', 'Информационная безопасность',
+        'Программирование'
+      ],
+
+      normalizeForMatch(s) {
+        return String(s || '')
+          .toLowerCase()
+          .replace(/ё/g, 'е')
+          .replace(/a/g, 'а').replace(/e/g, 'е').replace(/o/g, 'о')
+          .replace(/p/g, 'р').replace(/c/g, 'с').replace(/x/g, 'х')
+          .replace(/y/g, 'у').replace(/k/g, 'к').replace(/m/g, 'м')
+          .replace(/t/g, 'т').replace(/h/g, 'н').replace(/b/g, 'в')
+          .replace(/[^а-я0-9]/g, '');
+      },
+
+      levenshtein(a, b) {
+        const m = a.length, n = b.length;
+        if (m === 0) return n;
+        if (n === 0) return m;
+        const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+        for (let i = 0; i <= m; i++) dp[i][0] = i;
+        for (let j = 0; j <= n; j++) dp[0][j] = j;
+        for (let i = 1; i <= m; i++) {
+          for (let j = 1; j <= n; j++) {
+            const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+            dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+          }
+        }
+        return dp[m][n];
+      },
+
+      correctSubjectByDictionary(raw) {
+        const cleaned = this.sanitizeSubjectName(raw);
+        if (!cleaned) return '';
+        const norm = this.normalizeForMatch(cleaned);
+        if (!norm || norm.length < 3) return cleaned;
+
+        let best = null;
+        let bestScore = Infinity;
+        for (const subj of this.KNOWN_SUBJECTS) {
+          const sn = this.normalizeForMatch(subj);
+          if (!sn) continue;
+          if (norm.includes(sn) || sn.includes(norm)) return subj;
+          const dist = this.levenshtein(norm, sn);
+          const maxLen = Math.max(norm.length, sn.length);
+          if (dist < bestScore && dist <= Math.max(2, Math.floor(maxLen * 0.35))) {
+            bestScore = dist;
+            best = subj;
+          }
+        }
+        return best || cleaned;
+      },
+
       sanitizeSubjectName(raw) {
         let s = this.sanitizeRecognizedText(raw);
-        // убираем хвосты вида "Каб. 204", "ауд. 12", чистое время
         s = s
           .replace(/\b(каб\.?|ауд\.?|комн\.?|зал)\s*[\d\/\-]*\s*$/i, '')
           .replace(/\b\d{1,2}[:.]\d{2}\s*[-—–]\s*\d{1,2}[:.]\d{2}\b/g, '')
-          .replace(/\b\d{3}\b\s*$/g, '')
+          .replace(/\b\d{3}(?:\s*[/,]\s*\d{3})?\b\s*$/g, '')
+          .replace(/\b[А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+(?:\s*,\s*[А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+)*\s*$/u, '')
           .replace(/\s{2,}/g, ' ')
           .trim();
         return s;
+      },
+
+      extractTeacher(text) {
+        if (!text) return '';
+        const m = String(text).match(
+          /([А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+(?:\s*,\s*[А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+)*)/u
+        );
+        return m ? this.sanitizeRecognizedText(m[1]) : '';
+      },
+
+      extractRoom(text) {
+        if (!text) return '';
+        const m = String(text).match(
+          /(\d{2,4}(?:\s*[/,]\s*\d{2,4})?|с\s*\/\s*зал|с\/зал|зал)\s*$/i
+        ) || String(text).match(/\b(\d{2,4}(?:\s*[/,]\s*\d{2,4})?)\b/);
+        if (!m) return '';
+        let r = m[1].replace(/\s+/g, '');
+        if (/зал/i.test(r)) return 'зал';
+        return r;
       },
 
       // Автоопределение учебной недели (★1 / ★★2) по номеру недели года
@@ -2463,38 +2543,47 @@
       },
 
       async prepareRecognitionImage(file) {
-        // Увеличиваем читаемость фото: масштаб, сильный контраст, бинаризация для OCR.
+        // Увеличиваем читаемость неон-расписаний: масштаб вверх, инверсия тёмного фона, жёсткая бинаризация.
         try {
           const bitmap = await createImageBitmap(file);
-          const scale = Math.min(1, 2400 / Math.max(bitmap.width, bitmap.height));
+          // Для мелкого неон-шрифта увеличиваем до ~2800 px по длинной стороне
+          const longSide = Math.max(bitmap.width, bitmap.height);
+          const scale = longSide < 1800 ? (2800 / longSide) : Math.min(1.4, 2800 / longSide);
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(bitmap.width * scale));
           canvas.height = Math.max(1, Math.round(bitmap.height * scale));
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
           const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          // средняя яркость для адаптивного порога
+
           let sum = 0;
           for (let i = 0; i < image.data.length; i += 4) {
             sum += image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
           }
           const mean = sum / (image.data.length / 4);
-          const thr = Math.max(90, Math.min(170, mean * 0.92));
+          // Тёмный фон (неон) → инвертируем: яркий текст станет чёрным на белом
+          const isDarkBg = mean < 110;
+
           for (let i = 0; i < image.data.length; i += 4) {
-            const gray = image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
-            // усиленный контраст + мягкая бинаризация
-            let v = (gray - mean) * 1.55 + mean;
+            // Берём максимум каналов — неон (cyan/magenta) ярче в одном канале
+            const r = image.data[i], g = image.data[i + 1], b = image.data[i + 2];
+            let gray = Math.max(r, g, b);
+            if (isDarkBg) gray = 255 - gray;
+            // Сильный контраст
+            let v = (gray - 128) * 2.1 + 128;
             v = Math.max(0, Math.min(255, v));
-            // чуть «жёстче» края текста
-            if (v > thr + 18) v = 255;
-            else if (v < thr - 18) v = 0;
+            // Жёсткая бинаризация
+            v = v > 140 ? 255 : 0;
             image.data[i] = image.data[i + 1] = image.data[i + 2] = v;
+            image.data[i + 3] = 255;
           }
           ctx.putImageData(image, 0, 0);
-          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.93));
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
           bitmap.close?.();
-          if (blob && blob.size) return { blob, mimeType: 'image/jpeg', base64: await this.fileToBase64(blob) };
-        } catch (e) { /* fallback to the original image */ }
+          if (blob && blob.size) return { blob, mimeType: 'image/png', base64: await this.fileToBase64(blob) };
+        } catch (e) { /* fallback */ }
         return { blob: file, mimeType: file.type || 'image/jpeg', base64: await this.fileToBase64(file) };
       },
 
@@ -2808,22 +2897,16 @@
               propertyOrdering: ["day", "lessonNum", "subject", "teacher", "room", "weekType"]
             }
           };
-          const prompt = `Ты распознаёшь учебное расписание с фото. Верни ТОЛЬКО чистые данные.
+          const prompt = `Ты распознаёшь учебное расписание с фото (таблица: № | Предмет | Преподаватель | Кабинет). Верни ТОЛЬКО чистый JSON по схеме.
 
 СТРОГИЕ ПРАВИЛА:
-1) subject — только нормальное название предмета на русском (например: «История», «Математика», «Иностранный язык», «Физкультура»). БЕЗ звёзд, БЕЗ кавычек «», БЕЗ символов | || • :, БЕЗ обрывков OCR вроде «ов:2о», «HEECH», «ицт».
-2) Если текст нечитаем или это мусор — пропусти строку, не выдумывай.
-3) Если в одной паре два предмета со звёздами (★/* = 1-я неделя, ★★/** = 2-я неделя) — сделай ДВЕ записи с одинаковыми day и lessonNum, weekType "1" и "2".
-4) Без звёзд — weekType "both". Пустые ячейки и прочерки "—" пропускай.
-5) teacher — только ФИО или пустая строка. room — только номер кабинета / "с/зал".
+1) subject — ТОЛЬКО название предмета на русском: «Физика», «Математика», «Биология», «Литература», «История», «Информатика», «Обществознание», «Иностранный язык», «Физическая культура», «Русский язык», «География», «Классный час». БЕЗ звёзд, БЕЗ ФИО, БЕЗ номеров кабинетов, БЕЗ мусора.
+2) teacher — только ФИО как на фото (например «Е.П. Александрова», «О.В. Сарафанова», «Г.М. Маньшина, Л.В. Ковалев»). Если прочерк — пустая строка.
+3) room — только номер кабинета («318», «202/201», «зал»). Без слова «Каб.» если не нужно.
+4) Если в одной ячейке два предмета со звёздами (★ = 1-я неделя, ★★ = 2-я неделя), например «Литература ★ / История ★★» или «Информатика ★ / Обществознание ★★» — сделай ДВЕ записи с одинаковыми day и lessonNum, weekType "1" и "2", разными subject/teacher/room.
+5) Без звёзд — weekType "both". Пустые строки и «—» пропускай. Не выдумывай данные.
 
-Поля:
-- day: "Понедельник"|"Вторник"|"Среда"|"Четверг"|"Пятница"|"Суббота"
-- lessonNum: число (0..10)
-- subject: чистое название предмета
-- teacher: строка
-- room: строка
-- weekType: "both"|"1"|"2"`;
+Поля: day, lessonNum, subject, teacher, room, weekType ("both"|"1"|"2").`;
 
           const aiItems = await this.callGeminiVisionJSON(prompt, base64Data, preparedImage.mimeType, schema);
           if (Array.isArray(aiItems) && aiItems.length > 0) {
@@ -2831,12 +2914,13 @@
               const num = item.lessonNum !== undefined && item.lessonNum !== null ? Number(item.lessonNum) : (idx + 1);
               const roomStr = this.sanitizeRecognizedText(item.room || '');
               const teacherStr = this.sanitizeRecognizedText(item.teacher || '');
-              const subjectClean = this.sanitizeSubjectName(item.subject || '');
+              const subjectClean = this.correctSubjectByDictionary(item.subject || '') || this.sanitizeSubjectName(item.subject || '');
               if (!subjectClean) return null;
-              const combinedRoom = [
-                roomStr ? (roomStr.toLowerCase().includes('каб') || roomStr.toLowerCase().includes('зал') ? roomStr : `Каб. ${roomStr}`) : '',
-                teacherStr && teacherStr !== '—' ? teacherStr : ''
-              ].filter(Boolean).join(' · ') || 'Каб. по расписанию';
+              const roomOnly = roomStr
+                ? (roomStr.toLowerCase().includes('каб') || roomStr.toLowerCase().includes('зал') || roomStr.toLowerCase().includes('ауд')
+                    ? roomStr
+                    : `Каб. ${roomStr}`)
+                : 'Каб. по расписанию';
 
               return {
                 id: Date.now() + idx,
@@ -2844,8 +2928,8 @@
                 lessonNum: num,
                 time: this.getBellTimeForLesson(num, item.day),
                 subject: subjectClean,
-                teacher: teacherStr,
-                room: combinedRoom,
+                teacher: teacherStr && teacherStr !== '—' ? teacherStr : '',
+                room: roomOnly,
                 weekType: item.weekType === '1' || item.weekType === '2' ? item.weekType : 'both',
                 autoSend: true
               };
@@ -2861,8 +2945,15 @@
           try {
             if (window.Tesseract) {
               const result = await Promise.race([
-                window.Tesseract.recognize((preparedImage && preparedImage.blob) ? preparedImage.blob : file, 'rus', { preserve_interword_spaces: '1' }),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+                window.Tesseract.recognize(
+                  (preparedImage && preparedImage.blob) ? preparedImage.blob : file,
+                  'rus',
+                  {
+                    preserve_interword_spaces: '1',
+                    tessedit_pageseg_mode: '6' // блок текста / таблица
+                  }
+                ),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 45000))
               ]);
               if (result && result.data && result.data.text) {
                 ocrText = result.data.text;
@@ -2878,7 +2969,7 @@
         this.openAIScheduleReviewModal(imageUrl, file.name);
       },
 
-      // Построчный разбор OCR-текста любого расписания
+      // Построчный разбор OCR-текста любого расписания (предмет / учитель / кабинет / ★★)
       parseRawScheduleText(rawText) {
         const lines = String(rawText || '')
           .split(/\r?\n/)
@@ -2896,70 +2987,124 @@
 
         const results = [];
         let currentDay = 'Понедельник';
-        let currentLessonNum = 1;
+        let currentLessonNum = 0;
+
+        const pushEntry = (day, lessonNum, subjectRaw, teacherRaw, roomRaw, weekType) => {
+          let subject = this.correctSubjectByDictionary(subjectRaw);
+          if (!subject || subject.length < 2) return;
+          if (/^(пара|урок|предмет|каб|препод|№|номер)/i.test(subject)) return;
+
+          const teacher = this.sanitizeRecognizedText(teacherRaw || '') || this.extractTeacher(subjectRaw) || '';
+          let roomNum = this.extractRoom(roomRaw) || this.extractRoom(subjectRaw) || '';
+          // если room уже с «Каб.» — оставляем
+          let room = roomNum
+            ? (/зал/i.test(roomNum) ? 'зал' : (roomNum.toLowerCase().includes('каб') ? roomNum : `Каб. ${roomNum}`))
+            : 'Каб. по расписанию';
+
+          // если teacher попал в subject — вычищаем
+          if (teacher) {
+            subject = subject.replace(teacher, '').replace(/\s{2,}/g, ' ').trim();
+            subject = this.correctSubjectByDictionary(subject) || subject;
+          }
+
+          results.push({
+            id: Date.now() + results.length + Math.random(),
+            day,
+            lessonNum: lessonNum,
+            time: this.getBellTimeForLesson(lessonNum, day),
+            subject,
+            teacher: teacher || '',
+            room,
+            weekType: weekType || 'both',
+            autoSend: true
+          });
+        };
+
+        // Разбор строки с возможным разделением «Предмет ★ / Предмет ★★»
+        const parseDualWeekLine = (content, day, lessonNum) => {
+          // Паттерн: Subject ★ / Subject ★★  или  Subject * / Subject **
+          const dual = content.match(
+            /(.+?)\s*[★☆*]{1,2}\s*[\/|]\s*(.+?)\s*[★☆*]{1,2}/u
+          );
+          if (dual) {
+            const left = dual[1].trim();
+            const right = dual[2].trim();
+            // левая часть — обычно ★ (1-я), правая — ★★ (2-я)
+            const leftTeacher = this.extractTeacher(left);
+            const rightTeacher = this.extractTeacher(right);
+            const leftRoom = this.extractRoom(left);
+            const rightRoom = this.extractRoom(right);
+            // комнаты могут быть после обоих: "202 / 220"
+            const roomsAfter = content.match(/(\d{2,4})\s*[/,]\s*(\d{2,4})\s*$/);
+            pushEntry(day, lessonNum, left, leftTeacher, leftRoom || (roomsAfter ? roomsAfter[1] : ''), '1');
+            pushEntry(day, lessonNum, right, rightTeacher || leftTeacher, rightRoom || (roomsAfter ? roomsAfter[2] : ''), '2');
+            return true;
+          }
+          return false;
+        };
 
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
 
-          // Проверяем смену дня недели
           const matchedDay = dayMap.find(d => d.regex.test(line));
           if (matchedDay) {
             currentDay = matchedDay.name;
-            currentLessonNum = 1;
+            currentLessonNum = 0;
             continue;
           }
 
-          // Пропускаем заголовки таблицы
-          if (/предмет|преподаватель|кабинет|расписание|группы/i.test(line)) {
+          if (/^(№|предмет|преподаватель|кабинет|расписание|группы|информационн)/i.test(line)) {
             continue;
           }
+          if (/^[-—_=\s]+$/.test(line)) continue;
 
-          // Определяем номер пары в начале строки
-          const numMatch = line.match(/^([0-6])\s+(.+)/);
+          // Номер пары в начале: "0 Классный час", "1 Физика Е.П. ..."
+          const numMatch = line.match(/^([0-9])\s*[.)]?\s+(.+)/);
           let content = line;
           if (numMatch) {
             currentLessonNum = parseInt(numMatch[1], 10);
             content = numMatch[2].trim();
+          } else {
+            // иногда номер на отдельной строке, а предмет на следующей — пропускаем голые цифры
+            if (/^[0-9]$/.test(line)) {
+              currentLessonNum = parseInt(line, 10);
+              continue;
+            }
+            // без номера — инкремент
+            if (currentLessonNum < 10) currentLessonNum += 1;
           }
 
           if (!content || /^[-—_]+$/.test(content)) continue;
 
-          // Определяем звёзды (★★ / ** = 2-я неделя, ★ / * = 1-я неделя)
+          // Двойные предметы со звёздами
+          if (parseDualWeekLine(content, currentDay, currentLessonNum)) {
+            continue;
+          }
+
+          // Одиночная звезда
           let weekType = 'both';
-          if (/(\*{2}|★{2}|☆{2})/.test(content)) {
-            weekType = '2';
-          } else if (/(\*{1}|★{1}|☆{1})/.test(content)) {
-            weekType = '1';
-          }
+          if (/(\*{2}|★{2}|☆{2})/.test(content)) weekType = '2';
+          else if (/(\*{1}|★{1}|☆{1})/.test(content)) weekType = '1';
 
-          // Извлекаем номер кабинета в конце строки
-          const roomMatch = content.match(/(\d{3}(?:\s*[/,]\s*\d{3})?|с\/зал|зал)\s*$/i);
-          const room = roomMatch ? `Каб. ${roomMatch[1]}` : 'Каб. по расписанию';
-          let cleanedSubject = content
-            .replace(/(\d{3}(?:\s*[/,]\s*\d{3})?|с\/зал|зал)\s*$/i, '')
-            .replace(/[★☆*]+/g, '')
+          const teacher = this.extractTeacher(content);
+          const room = this.extractRoom(content);
+
+          // subject = всё минус teacher минус room минус звёзды
+          let subjectPart = content
+            .replace(/[★☆*]+/g, ' ')
+            .replace(/\b\d{2,4}(?:\s*[/,]\s*\d{2,4})?\s*$/, '')
+            .replace(/с\s*\/\s*зал|с\/зал|зал\s*$/i, '')
             .trim();
-          cleanedSubject = this.sanitizeSubjectName(cleanedSubject);
-
-          // отсекаем OCR-мусор
-          if (cleanedSubject.length >= 2 && !/^(пара|урок|предмет|каб)/i.test(cleanedSubject)) {
-            results.push({
-              id: Date.now() + results.length,
-              day: currentDay,
-              lessonNum: currentLessonNum,
-              time: this.getBellTimeForLesson(currentLessonNum, currentDay),
-              subject: cleanedSubject,
-              room: room,
-              weekType: weekType,
-              autoSend: true
-            });
-            if (!numMatch && currentLessonNum < 5) {
-              currentLessonNum++;
-            }
+          if (teacher) {
+            subjectPart = subjectPart.replace(teacher, '').replace(/\s*,\s*$/, '').trim();
           }
+          // убрать лишние куски после предмета (если OCR склеил колонки)
+          subjectPart = subjectPart.replace(/\s{2,}/g, ' ').trim();
+
+          pushEntry(currentDay, currentLessonNum, subjectPart, teacher, room, weekType);
         }
 
-        // Если OCR не смог прочитать декоративный шрифт, создаём пустой черновик по дням недели для заполнения
+        // Если OCR не смог прочитать декоративный шрифт — пустой черновик для ручного заполнения
         if (results.length === 0) {
           const days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница'];
           days.forEach((d, dIdx) => {
@@ -2970,6 +3115,7 @@
                 lessonNum: num,
                 time: this.getBellTimeForLesson(num),
                 subject: `Пара №${num}`,
+                teacher: '',
                 room: 'Каб. —',
                 weekType: 'both',
                 autoSend: true
@@ -2991,22 +3137,24 @@
                 </select>
                 <input type="number" min="0" max="10" value="${c.lessonNum !== undefined ? c.lessonNum : 1}" onchange="App.updatePendingClassNum(${idx}, this.value)"
                   class="w-14 px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white text-center" title="Номер пары" />
-                <span class="text-[11px] font-mono text-slate-400">${c.time}</span>
+                <span class="text-[11px] font-mono text-slate-400">${c.time || ''}</span>
               </div>
-              <select onchange="App.updatePendingClassWeek(${idx}, this.value)" class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-semibold text-amber-300">
-                <option value="both" ${c.weekType === 'both' ? 'selected' : ''}>Каждая неделя</option>
-                <option value="1" ${c.weekType === '1' ? 'selected' : ''}>★ 1-я неделя</option>
-                <option value="2" ${c.weekType === '2' ? 'selected' : ''}>★★ 2-я неделя</option>
-              </select>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input type="text" value="${c.subject}" onchange="App.updatePendingClassSubject(${idx}, this.value)" placeholder="Предмет"
-                class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-white text-xs sm:text-sm font-medium focus:border-emerald-500 focus:outline-none" />
               <div class="flex items-center gap-1.5">
-                <input type="text" value="${c.room}" onchange="App.updatePendingClassRoom(${idx}, this.value)" placeholder="Кабинет и преподаватель"
-                  class="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-xs focus:border-emerald-500 focus:outline-none" />
+                <select onchange="App.updatePendingClassWeek(${idx}, this.value)" class="px-2 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-semibold text-amber-300">
+                  <option value="both" ${c.weekType === 'both' ? 'selected' : ''}>Каждая неделя</option>
+                  <option value="1" ${c.weekType === '1' ? 'selected' : ''}>★ 1-я неделя</option>
+                  <option value="2" ${c.weekType === '2' ? 'selected' : ''}>★★ 2-я неделя</option>
+                </select>
                 <button type="button" onclick="App.removePendingClass(${idx})" class="text-slate-500 hover:text-rose-400 p-1 shrink-0" title="Удалить">✕</button>
               </div>
+            </div>
+            <input type="text" value="${(c.subject || '').replace(/"/g, '&quot;')}" onchange="App.updatePendingClassSubject(${idx}, this.value)" placeholder="Название предмета"
+              class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-emerald-500/30 text-white text-xs sm:text-sm font-medium focus:border-emerald-500 focus:outline-none" />
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <input type="text" value="${(c.teacher || '').replace(/"/g, '&quot;')}" onchange="App.updatePendingClassTeacher(${idx}, this.value)" placeholder="Преподаватель (ФИО)"
+                class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-200 text-xs focus:border-emerald-500 focus:outline-none" />
+              <input type="text" value="${(c.room || '').replace(/"/g, '&quot;')}" onchange="App.updatePendingClassRoom(${idx}, this.value)" placeholder="Кабинет"
+                class="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-xs focus:border-emerald-500 focus:outline-none" />
             </div>
           </div>
         `).join('');
@@ -3057,6 +3205,7 @@
           lessonNum: 1,
           time: this.getBellTimeForLesson(1),
           subject: '',
+          teacher: '',
           room: '',
           weekType: 'both',
           autoSend: true
@@ -3070,10 +3219,15 @@
         }
       },
 
-            updatePendingClassSubject(idx, val) {
+      updatePendingClassSubject(idx, val) {
         if (this.state.pendingAIClasses[idx]) {
-          // при ручном вводе не режем «на лету», финальная очистка — в confirmAISchedule
           this.state.pendingAIClasses[idx].subject = val;
+        }
+      },
+
+      updatePendingClassTeacher(idx, val) {
+        if (this.state.pendingAIClasses[idx]) {
+          this.state.pendingAIClasses[idx].teacher = val;
         }
       },
 
@@ -3093,11 +3247,17 @@
           this.showToast('Изменять расписание уроков может только Староста или Зам. старосты');
           return;
         }
-        // Финальная очистка названий предметов от OCR-мусора перед сохранением
+        // Финальная очистка: предмет по словарю, учитель и кабинет отдельно
         const cleaned = (this.state.pendingAIClasses || []).map(c => {
-          const subject = this.sanitizeSubjectName(c.subject || '');
+          let subject = this.correctSubjectByDictionary(c.subject || '') || this.sanitizeSubjectName(c.subject || '');
           if (!subject) return null;
-          return { ...c, subject, room: this.sanitizeRecognizedText(c.room || '') || 'Каб. по расписанию' };
+          const teacher = this.sanitizeRecognizedText(c.teacher || '') || '';
+          let room = this.sanitizeRecognizedText(c.room || '') || '';
+          if (room && !/каб|зал|ауд/i.test(room) && /^\d/.test(room)) {
+            room = `Каб. ${room}`;
+          }
+          if (!room) room = 'Каб. по расписанию';
+          return { ...c, subject, teacher, room };
         }).filter(Boolean);
 
         this.state.classes = cleaned;
@@ -3191,7 +3351,9 @@
                   ${this.getWeekBadgeHtml(item.weekType)}
                 </div>
                 <p class="text-sm font-bold text-white">${item.subject}</p>
-                <p class="text-xs text-slate-400">${item.room}</p>
+                <p class="text-xs text-slate-400">
+                  ${item.teacher ? `<span class="text-slate-300">${item.teacher}</span> · ` : ''}${item.room || ''}
+                </p>
               </div>
               ${canDelete ? `
                 <button type="button" onclick="App.deleteClass(${item.id})" class="text-slate-500 hover:text-rose-400 p-1.5 transition" title="Удалить пару">
