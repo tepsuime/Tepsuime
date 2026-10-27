@@ -1,3 +1,4 @@
+<!DOCTYPE html>
 <html lang="ru" class="dark">
 <head>
   <meta charset="UTF-8" />
@@ -2358,7 +2359,7 @@
       },
 
 
-      // Жёсткая очистка OCR-мусора: только буквы/цифры/пробелы/дефисы, без «» || странных знаков
+      // Жёсткая очистка OCR-мусора + типичные замены кириллицы/латиницы
       sanitizeRecognizedText(raw) {
         if (!raw) return '';
         let s = String(raw)
@@ -2367,23 +2368,28 @@
           .replace(/[•·∙●○◦]/g, ' ')
           .replace(/[\/\\]+/g, '/')
           .replace(/[_=~`^]+/g, ' ')
-          .replace(/[★☆✦✧✪✩*]+/g, ' ')
           .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
-          .replace(/[^\u0400-\u04FFa-zA-Z0-9\s\-.,()\/№:;]/g, ' ')
+          // частые латинские похожие символы → кириллица
+          .replace(/[AА]/g, 'А').replace(/[BВ]/g, 'В').replace(/[CС]/g, 'С')
+          .replace(/[EЕ]/g, 'Е').replace(/[HН]/g, 'Н').replace(/[KК]/g, 'К')
+          .replace(/[MМ]/g, 'М').replace(/[OО]/g, 'О').replace(/[PР]/g, 'Р')
+          .replace(/[TТ]/g, 'Т').replace(/[XХ]/g, 'Х').replace(/[YУ]/g, 'У')
+          .replace(/[aа]/g, 'а').replace(/[cс]/g, 'с').replace(/[eе]/g, 'е')
+          .replace(/[oо]/g, 'о').replace(/[pр]/g, 'р').replace(/[xх]/g, 'х')
+          .replace(/[yу]/g, 'у').replace(/[kк]/g, 'к').replace(/[mм]/g, 'м')
+          .replace(/[tт]/g, 'т').replace(/[hн]/g, 'н').replace(/[bв]/g, 'в')
+          .replace(/[^\u0400-\u04FFa-zA-Z0-9\s\-.,()\/№:;*★☆]/g, ' ')
           .replace(/\s{2,}/g, ' ')
           .trim();
 
         const fixes = [
+          [/пведмет|предмет/gi, 'предмет'],
+          [/препод[ао]в[ая]тель|пЕподАвятель|преподаватель/gi, 'преподаватель'],
+          [/кабинет|каб\.?/gi, 'каб'],
           [/ицт/gi, ''],
-          [/HEECH/gi, ''],
-          [/HEE[CС]H/gi, ''],
+          [/HEECH|HEE[CС]H/gi, ''],
           [/\bов\s*:\s*\d*о?\b/gi, ''],
           [/\bое\s*:\s*\d+/gi, ''],
-          [/\bо\s*осы\b/gi, ''],
-          [/\bенто\b/gi, ''],
-          [/\bоена\b/gi, ''],
-          [/\bпаче\b/gi, ''],
-          [/\bлисе\b/gi, ''],
           [/^[:;.,\-\/\s]+/, ''],
           [/[:;.,\-\/\s]+$/, ''],
           [/\s*[:|]\s*/g, ' '],
@@ -2398,15 +2404,32 @@
         return s;
       },
 
-      // Словарь типичных предметов для исправления OCR-мусора
+      // Словарь предметов (из реальных расписаний групп)
       KNOWN_SUBJECTS: [
         'Классный час', 'Физика', 'Биология', 'Математика', 'Обществознание',
-        'Литература', 'Физическая культура', 'Физкультура', 'Иностранный язык',
-        'Русский язык', 'География', 'Информатика', 'История', 'Химия',
-        'ОБЖ', 'Черчение', 'Технология', 'Музыка', 'ИЗО', 'Астрономия',
-        'Экономика', 'Право', 'Алгебра', 'Геометрия', 'Английский язык',
-        'Немецкий язык', 'Французский язык', 'Информационная безопасность',
-        'Программирование'
+        'Литература', 'Физическая культура', 'Физкультура', 'Физ-ра',
+        'Иностранный язык', 'Иностр. яз.', 'Русский язык', 'География',
+        'Информатика', 'История', 'Химия',
+        'Основы безопасности и защиты Родины', 'ОБЖ',
+        'Черчение', 'Технология', 'Музыка', 'ИЗО', 'Астрономия',
+        'Экономика', 'Право', 'Алгебра', 'Геометрия',
+        'Английский язык', 'Немецкий язык', 'Французский язык',
+        'Информационная безопасность', 'Программирование',
+        'Рисунок с основами перспективы', 'Дизайн в рекламных технологиях',
+        'Информационное обеспечение профессиональной деятельности',
+        'Иностранный язык в профессиональной деятельности',
+        'Материаловедение', 'Живопись с основами цветоведения',
+        'История изобразительного искусства', 'Проекционное черчение'
+      ],
+
+      // Преподаватели из реальных расписаний (для fuzzy-match)
+      KNOWN_TEACHERS: [
+        'Е.П. Александрова', 'Е.С. Филимонова', 'О.В. Сарафанова', 'А.Н. Осипов',
+        'Г.М. Маньшина', 'Э.М. Арутюнян', 'Т.Ф. Колчина', 'И.А. Бощенко',
+        'Ю.В. Филина', 'Л.В. Ковалев', 'Ю.Ю. Захарова', 'А.С. Пригарин',
+        'Н.В. Драчук', 'Л.В. Родионова', 'М.А. Курушина', 'М.А. Кушнарева',
+        'Т.Е. Синельник', 'М.Ю. Гордиенко', 'И.Е. Сытин', 'О.В. Любимов',
+        'С.Ю. Курушин', 'Н.Н. Ушурелу', 'Т.Г. Трусова'
       ],
 
       normalizeForMatch(s) {
@@ -2424,6 +2447,7 @@
         const m = a.length, n = b.length;
         if (m === 0) return n;
         if (n === 0) return m;
+        if (Math.abs(m - n) > Math.max(m, n) * 0.5) return Math.max(m, n);
         const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
         for (let i = 0; i <= m; i++) dp[i][0] = i;
         for (let j = 0; j <= n; j++) dp[0][j] = j;
@@ -2440,19 +2464,56 @@
         const cleaned = this.sanitizeSubjectName(raw);
         if (!cleaned) return '';
         const norm = this.normalizeForMatch(cleaned);
-        if (!norm || norm.length < 3) return cleaned;
+        if (!norm || norm.length < 2) return cleaned;
+
+        // прямое вхождение
+        for (const subj of this.KNOWN_SUBJECTS) {
+          const sn = this.normalizeForMatch(subj);
+          if (!sn) continue;
+          if (norm === sn || norm.includes(sn) || sn.includes(norm)) return subj;
+        }
 
         let best = null;
         let bestScore = Infinity;
         for (const subj of this.KNOWN_SUBJECTS) {
           const sn = this.normalizeForMatch(subj);
-          if (!sn) continue;
-          if (norm.includes(sn) || sn.includes(norm)) return subj;
+          if (!sn || sn.length < 3) continue;
           const dist = this.levenshtein(norm, sn);
           const maxLen = Math.max(norm.length, sn.length);
-          if (dist < bestScore && dist <= Math.max(2, Math.floor(maxLen * 0.35))) {
+          const threshold = Math.max(2, Math.floor(maxLen * 0.4));
+          if (dist < bestScore && dist <= threshold) {
             bestScore = dist;
             best = subj;
+          }
+        }
+        // короткие алиасы
+        if (!best) {
+          if (/физ.?ра|физкульт/i.test(cleaned)) return 'Физическая культура';
+          if (/обж|основ[ыа].*безопас/i.test(cleaned)) return 'Основы безопасности и защиты Родины';
+          if (/иностр/i.test(cleaned)) return 'Иностранный язык';
+          if (/классн/i.test(cleaned)) return 'Классный час';
+        }
+        return best || cleaned;
+      },
+
+      correctTeacherByDictionary(raw) {
+        const cleaned = this.sanitizeRecognizedText(raw);
+        if (!cleaned || cleaned.length < 3) return cleaned || '';
+        const norm = this.normalizeForMatch(cleaned);
+        // точное / частичное
+        for (const t of this.KNOWN_TEACHERS) {
+          const tn = this.normalizeForMatch(t);
+          if (norm === tn || norm.includes(tn) || tn.includes(norm)) return t;
+        }
+        let best = null;
+        let bestScore = Infinity;
+        for (const t of this.KNOWN_TEACHERS) {
+          const tn = this.normalizeForMatch(t);
+          const dist = this.levenshtein(norm, tn);
+          const maxLen = Math.max(norm.length, tn.length);
+          if (dist < bestScore && dist <= Math.max(2, Math.floor(maxLen * 0.35))) {
+            bestScore = dist;
+            best = t;
           }
         }
         return best || cleaned;
@@ -2461,9 +2522,10 @@
       sanitizeSubjectName(raw) {
         let s = this.sanitizeRecognizedText(raw);
         s = s
+          .replace(/[★☆*]+/g, ' ')
           .replace(/\b(каб\.?|ауд\.?|комн\.?|зал)\s*[\d\/\-]*\s*$/i, '')
           .replace(/\b\d{1,2}[:.]\d{2}\s*[-—–]\s*\d{1,2}[:.]\d{2}\b/g, '')
-          .replace(/\b\d{3}(?:\s*[/,]\s*\d{3})?\b\s*$/g, '')
+          .replace(/\b\d{2,4}(?:\s*[/,]\s*\d{2,4})?\b\s*$/g, '')
           .replace(/\b[А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+(?:\s*,\s*[А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+)*\s*$/u, '')
           .replace(/\s{2,}/g, ' ')
           .trim();
@@ -2475,18 +2537,24 @@
         const m = String(text).match(
           /([А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+(?:\s*,\s*[А-ЯЁA-Z]\.[А-ЯЁA-Z]\.?\s*[А-ЯЁA-Za-zа-яё\-]+)*)/u
         );
-        return m ? this.sanitizeRecognizedText(m[1]) : '';
+        if (m) return this.correctTeacherByDictionary(m[1]);
+        // fallback: ищем известного преподавателя внутри строки
+        const normLine = this.normalizeForMatch(text);
+        for (const t of this.KNOWN_TEACHERS) {
+          const tn = this.normalizeForMatch(t);
+          if (tn.length >= 5 && normLine.includes(tn)) return t;
+        }
+        return '';
       },
 
       extractRoom(text) {
         if (!text) return '';
-        const m = String(text).match(
-          /(\d{2,4}(?:\s*[/,]\s*\d{2,4})?|с\s*\/\s*зал|с\/зал|зал)\s*$/i
-        ) || String(text).match(/\b(\d{2,4}(?:\s*[/,]\s*\d{2,4})?)\b/);
+        const t = String(text);
+        if (/с\s*\/\s*зал|с\/зал|\bзал\b/i.test(t)) return 'зал';
+        const m = t.match(/(\d{2,4}(?:\s*[/,]\s*\d{2,4})?)\s*$/) ||
+                  t.match(/\b(\d{2,4}(?:\s*[/,]\s*\d{2,4})?)\b/);
         if (!m) return '';
-        let r = m[1].replace(/\s+/g, '');
-        if (/зал/i.test(r)) return 'зал';
-        return r;
+        return m[1].replace(/\s+/g, ' ').trim();
       },
 
       // Автоопределение учебной недели (★1 / ★★2) по номеру недели года
@@ -2543,12 +2611,12 @@
       },
 
       async prepareRecognitionImage(file) {
-        // Увеличиваем читаемость неон-расписаний: масштаб вверх, инверсия тёмного фона, жёсткая бинаризация.
+        // Усиливаем читаемость: масштаб, инверсия тёмного неон-фона, адаптивный контраст и бинаризация.
         try {
           const bitmap = await createImageBitmap(file);
-          // Для мелкого неон-шрифта увеличиваем до ~2800 px по длинной стороне
           const longSide = Math.max(bitmap.width, bitmap.height);
-          const scale = longSide < 1800 ? (2800 / longSide) : Math.min(1.4, 2800 / longSide);
+          // Крупнее масштаб — лучше OCR мелкого шрифта
+          const scale = longSide < 2000 ? (3200 / longSide) : Math.min(1.6, 3200 / longSide);
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.round(bitmap.width * scale));
           canvas.height = Math.max(1, Math.round(bitmap.height * scale));
@@ -2557,27 +2625,47 @@
           ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
           const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const w = canvas.width, h = canvas.height, data = image.data;
 
           let sum = 0;
-          for (let i = 0; i < image.data.length; i += 4) {
-            sum += image.data[i] * 0.299 + image.data[i + 1] * 0.587 + image.data[i + 2] * 0.114;
+          for (let i = 0; i < data.length; i += 4) {
+            sum += Math.max(data[i], data[i + 1], data[i + 2]);
           }
-          const mean = sum / (image.data.length / 4);
-          // Тёмный фон (неон) → инвертируем: яркий текст станет чёрным на белом
-          const isDarkBg = mean < 110;
+          const mean = sum / (data.length / 4);
+          const isDarkBg = mean < 120;
 
-          for (let i = 0; i < image.data.length; i += 4) {
-            // Берём максимум каналов — неон (cyan/magenta) ярче в одном канале
-            const r = image.data[i], g = image.data[i + 1], b = image.data[i + 2];
-            let gray = Math.max(r, g, b);
+          // Первый проход: grayscale + инверсия при тёмном фоне + контраст
+          const grayArr = new Uint8ClampedArray(w * h);
+          for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+            let gray = Math.max(data[i], data[i + 1], data[i + 2]);
             if (isDarkBg) gray = 255 - gray;
-            // Сильный контраст
-            let v = (gray - 128) * 2.1 + 128;
-            v = Math.max(0, Math.min(255, v));
-            // Жёсткая бинаризация
-            v = v > 140 ? 255 : 0;
-            image.data[i] = image.data[i + 1] = image.data[i + 2] = v;
-            image.data[i + 3] = 255;
+            // контраст
+            gray = Math.max(0, Math.min(255, (gray - 128) * 2.4 + 128));
+            grayArr[p] = gray;
+          }
+
+          // Простая локальная адаптивная бинаризация (блоки 16x16)
+          const block = 16;
+          for (let by = 0; by < h; by += block) {
+            for (let bx = 0; bx < w; bx += block) {
+              let localSum = 0, cnt = 0;
+              const y2 = Math.min(h, by + block), x2 = Math.min(w, bx + block);
+              for (let y = by; y < y2; y++) {
+                for (let x = bx; x < x2; x++) {
+                  localSum += grayArr[y * w + x];
+                  cnt++;
+                }
+              }
+              const thr = (localSum / cnt) - 8;
+              for (let y = by; y < y2; y++) {
+                for (let x = bx; x < x2; x++) {
+                  const v = grayArr[y * w + x] > thr ? 255 : 0;
+                  const idx = (y * w + x) * 4;
+                  data[idx] = data[idx + 1] = data[idx + 2] = v;
+                  data[idx + 3] = 255;
+                }
+              }
+            }
           }
           ctx.putImageData(image, 0, 0);
           const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
@@ -2897,14 +2985,14 @@
               propertyOrdering: ["day", "lessonNum", "subject", "teacher", "room", "weekType"]
             }
           };
-          const prompt = `Ты распознаёшь учебное расписание с фото (таблица: № | Предмет | Преподаватель | Кабинет). Верни ТОЛЬКО чистый JSON по схеме.
+          const prompt = `Ты распознаёшь учебное расписание с фото (таблица: № | Предмет | Преподаватель | Кабинет). Верни ТОЛЬКО чистый JSON-массив по схеме.
 
 СТРОГИЕ ПРАВИЛА:
-1) subject — ТОЛЬКО название предмета на русском: «Физика», «Математика», «Биология», «Литература», «История», «Информатика», «Обществознание», «Иностранный язык», «Физическая культура», «Русский язык», «География», «Классный час». БЕЗ звёзд, БЕЗ ФИО, БЕЗ номеров кабинетов, БЕЗ мусора.
-2) teacher — только ФИО как на фото (например «Е.П. Александрова», «О.В. Сарафанова», «Г.М. Маньшина, Л.В. Ковалев»). Если прочерк — пустая строка.
-3) room — только номер кабинета («318», «202/201», «зал»). Без слова «Каб.» если не нужно.
-4) Если в одной ячейке два предмета со звёздами (★ = 1-я неделя, ★★ = 2-я неделя), например «Литература ★ / История ★★» или «Информатика ★ / Обществознание ★★» — сделай ДВЕ записи с одинаковыми day и lessonNum, weekType "1" и "2", разными subject/teacher/room.
-5) Без звёзд — weekType "both". Пустые строки и «—» пропускай. Не выдумывай данные.
+1) subject — ТОЛЬКО название предмета на русском БЕЗ звёзд, БЕЗ ФИО, БЕЗ кабинетов. Типичные: «Физика», «Математика», «Биология», «Литература», «История», «Информатика», «Обществознание», «Иностранный язык», «Физическая культура», «Русский язык», «География», «Классный час», «Химия», «Основы безопасности и защиты Родины».
+2) teacher — только ФИО как на фото (примеры: «Е.П. Александрова», «О.В. Сарафанова», «Г.М. Маньшина», «Е.С. Филимонова», «А.Н. Осипов», «Л.В. Ковалев», «Ю.В. Филина», «Ю.Ю. Захарова», «Н.В. Драчук», «Т.Ф. Колчина, И.А. Бощенко»). Если прочерк — пустая строка.
+3) room — только номер («318», «202/201», «зал», «с/зал»).
+4) Если в одной ячейке два предмета со звёздами (★ = 1-я неделя, ★★ = 2-я неделя), например «Литература ★ / История ★★» или «Информатика ★ / Обществознание ★★» — сделай ДВЕ записи с одинаковыми day и lessonNum, weekType "1" и "2".
+5) Без звёзд — weekType "both". Пустые строки и «—» пропускай. Не выдумывай данные. day — полное название дня: Понедельник, Вторник, Среда, Четверг, Пятница.
 
 Поля: day, lessonNum, subject, teacher, room, weekType ("both"|"1"|"2").`;
 
@@ -2913,13 +3001,14 @@
             extractedClasses = aiItems.map((item, idx) => {
               const num = item.lessonNum !== undefined && item.lessonNum !== null ? Number(item.lessonNum) : (idx + 1);
               const roomStr = this.sanitizeRecognizedText(item.room || '');
-              const teacherStr = this.sanitizeRecognizedText(item.teacher || '');
+              const teacherStr = this.correctTeacherByDictionary(item.teacher || '') || this.sanitizeRecognizedText(item.teacher || '');
               const subjectClean = this.correctSubjectByDictionary(item.subject || '') || this.sanitizeSubjectName(item.subject || '');
-              if (!subjectClean) return null;
+              if (!subjectClean || /^(пара|урок|предмет)/i.test(subjectClean)) return null;
               const roomOnly = roomStr
-                ? (roomStr.toLowerCase().includes('каб') || roomStr.toLowerCase().includes('зал') || roomStr.toLowerCase().includes('ауд')
-                    ? roomStr
-                    : `Каб. ${roomStr}`)
+                ? (/зал/i.test(roomStr) ? 'зал'
+                    : (roomStr.toLowerCase().includes('каб') || roomStr.toLowerCase().includes('ауд')
+                        ? roomStr
+                        : `Каб. ${roomStr}`))
                 : 'Каб. по расписанию';
 
               return {
@@ -2944,20 +3033,29 @@
           let ocrText = '';
           try {
             if (window.Tesseract) {
-              const result = await Promise.race([
-                window.Tesseract.recognize(
-                  (preparedImage && preparedImage.blob) ? preparedImage.blob : file,
-                  'rus',
-                  {
-                    preserve_interword_spaces: '1',
-                    tessedit_pageseg_mode: '6' // блок текста / таблица
-                  }
-                ),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 45000))
+              const src = (preparedImage && preparedImage.blob) ? preparedImage.blob : file;
+              // Пробуем два режима сегментации: таблица (6) и единый блок (4)
+              const runOcr = (psm) => window.Tesseract.recognize(src, 'rus', {
+                preserve_interword_spaces: '1',
+                tessedit_pageseg_mode: String(psm)
+              });
+              const results = await Promise.race([
+                Promise.allSettled([runOcr(6), runOcr(4)]),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 50000))
               ]);
-              if (result && result.data && result.data.text) {
-                ocrText = result.data.text;
+              let bestText = '';
+              if (Array.isArray(results)) {
+                for (const r of results) {
+                  if (r.status === 'fulfilled' && r.value?.data?.text) {
+                    const t = r.value.data.text;
+                    // выбираем текст с большим числом кириллических букв
+                    const score = (t.match(/[А-Яа-яЁё]/g) || []).length;
+                    const bestScore = (bestText.match(/[А-Яа-яЁё]/g) || []).length;
+                    if (score > bestScore) bestText = t;
+                  }
+                }
               }
+              ocrText = bestText;
             }
           } catch (e) {
             ocrText = '';
@@ -2977,12 +3075,12 @@
           .filter(l => l.length > 1);
 
         const dayMap = [
-          { regex: /понедельник|^пн\b/i, name: 'Понедельник' },
-          { regex: /вторник|^вт\b/i, name: 'Вторник' },
-          { regex: /среда|^ср\b/i, name: 'Среда' },
-          { regex: /четверг|^чт\b/i, name: 'Четверг' },
-          { regex: /пятница|^пт\b/i, name: 'Пятница' },
-          { regex: /суббота|^сб\b/i, name: 'Суббота' }
+          { regex: /понедельник|^пн\b|понедел/i, name: 'Понедельник' },
+          { regex: /вторник|^вт\b|вторн/i, name: 'Вторник' },
+          { regex: /среда|^ср\b|сред[аы]/i, name: 'Среда' },
+          { regex: /четверг|^чт\b|четвер/i, name: 'Четверг' },
+          { regex: /пятница|^пт\b|пятниц/i, name: 'Пятница' },
+          { regex: /суббота|^сб\b|суббот/i, name: 'Суббота' }
         ];
 
         const results = [];
@@ -2992,20 +3090,31 @@
         const pushEntry = (day, lessonNum, subjectRaw, teacherRaw, roomRaw, weekType) => {
           let subject = this.correctSubjectByDictionary(subjectRaw);
           if (!subject || subject.length < 2) return;
-          if (/^(пара|урок|предмет|каб|препод|№|номер)/i.test(subject)) return;
+          if (/^(пара|урок|предмет|каб|препод|№|номер|день|неделя)/i.test(subject)) return;
 
-          const teacher = this.sanitizeRecognizedText(teacherRaw || '') || this.extractTeacher(subjectRaw) || '';
+          let teacher = this.correctTeacherByDictionary(teacherRaw || '') ||
+                        this.extractTeacher(subjectRaw) ||
+                        this.extractTeacher(teacherRaw || '') || '';
           let roomNum = this.extractRoom(roomRaw) || this.extractRoom(subjectRaw) || '';
-          // если room уже с «Каб.» — оставляем
           let room = roomNum
             ? (/зал/i.test(roomNum) ? 'зал' : (roomNum.toLowerCase().includes('каб') ? roomNum : `Каб. ${roomNum}`))
             : 'Каб. по расписанию';
 
-          // если teacher попал в subject — вычищаем
           if (teacher) {
-            subject = subject.replace(teacher, '').replace(/\s{2,}/g, ' ').trim();
-            subject = this.correctSubjectByDictionary(subject) || subject;
+            const tn = this.normalizeForMatch(teacher);
+            const sn = this.normalizeForMatch(subject);
+            if (sn.includes(tn) || subject.includes(teacher)) {
+              subject = subject.replace(new RegExp(teacher.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '').replace(/\s{2,}/g, ' ').trim();
+              subject = this.correctSubjectByDictionary(subject) || subject;
+            }
           }
+
+          // не дублируем одинаковые записи
+          const exists = results.some(r =>
+            r.day === day && r.lessonNum === lessonNum &&
+            r.subject === subject && r.weekType === (weekType || 'both')
+          );
+          if (exists) return;
 
           results.push({
             id: Date.now() + results.length + Math.random(),
@@ -3020,31 +3129,62 @@
           });
         };
 
-        // Разбор строки с возможным разделением «Предмет ★ / Предмет ★★»
+        // Разбор «Предмет ★ / Предмет ★★» или «Предмет * / Предмет **»
         const parseDualWeekLine = (content, day, lessonNum) => {
-          // Паттерн: Subject ★ / Subject ★★  или  Subject * / Subject **
           const dual = content.match(
-            /(.+?)\s*[★☆*]{1,2}\s*[\/|]\s*(.+?)\s*[★☆*]{1,2}/u
+            /(.+?)\s*[★☆*]{1,2}\s*[\/|]\s*(.+?)(?:\s*[★☆*]{1,2})?/u
           );
           if (dual) {
             const left = dual[1].trim();
             const right = dual[2].trim();
-            // левая часть — обычно ★ (1-я), правая — ★★ (2-я)
             const leftTeacher = this.extractTeacher(left);
             const rightTeacher = this.extractTeacher(right);
             const leftRoom = this.extractRoom(left);
             const rightRoom = this.extractRoom(right);
-            // комнаты могут быть после обоих: "202 / 220"
             const roomsAfter = content.match(/(\d{2,4})\s*[/,]\s*(\d{2,4})\s*$/);
-            pushEntry(day, lessonNum, left, leftTeacher, leftRoom || (roomsAfter ? roomsAfter[1] : ''), '1');
-            pushEntry(day, lessonNum, right, rightTeacher || leftTeacher, rightRoom || (roomsAfter ? roomsAfter[2] : ''), '2');
+            // также ищем двух преподавателей через /
+            const teachersSlash = content.match(
+              /([А-ЯЁ]\.[А-ЯЁ]\.?\s*[А-Яа-яё\-]+)\s*[\/|]\s*([А-ЯЁ]\.[А-ЯЁ]\.?\s*[А-Яа-яё\-]+)/u
+            );
+            pushEntry(day, lessonNum, left, leftTeacher || (teachersSlash ? teachersSlash[1] : ''), leftRoom || (roomsAfter ? roomsAfter[1] : ''), '1');
+            pushEntry(day, lessonNum, right, rightTeacher || (teachersSlash ? teachersSlash[2] : leftTeacher), rightRoom || (roomsAfter ? roomsAfter[2] : ''), '2');
             return true;
+          }
+          // вариант без звёзд, но с явным « / » между двумя известными предметами
+          const subjSlash = content.match(/^(.+?)\s*[\/|]\s*(.+)$/);
+          if (subjSlash) {
+            const leftS = this.correctSubjectByDictionary(subjSlash[1]);
+            const rightS = this.correctSubjectByDictionary(subjSlash[2]);
+            if (leftS && rightS && leftS !== rightS &&
+                this.KNOWN_SUBJECTS.includes(leftS) && this.KNOWN_SUBJECTS.includes(rightS)) {
+              const roomsAfter = content.match(/(\d{2,4})\s*[/,]\s*(\d{2,4})\s*$/);
+              const teachersSlash = content.match(
+                /([А-ЯЁ]\.[А-ЯЁ]\.?\s*[А-Яа-яё\-]+)\s*[\/|]\s*([А-ЯЁ]\.[А-ЯЁ]\.?\s*[А-Яа-яё\-]+)/u
+              );
+              pushEntry(day, lessonNum, leftS, teachersSlash ? teachersSlash[1] : this.extractTeacher(content), roomsAfter ? roomsAfter[1] : this.extractRoom(content), '1');
+              pushEntry(day, lessonNum, rightS, teachersSlash ? teachersSlash[2] : this.extractTeacher(content), roomsAfter ? roomsAfter[2] : this.extractRoom(content), '2');
+              return true;
+            }
           }
           return false;
         };
 
+        // Поиск известного предмета в «грязной» строке
+        const findSubjectInLine = (line) => {
+          const norm = this.normalizeForMatch(line);
+          let best = null, bestLen = 0;
+          for (const subj of this.KNOWN_SUBJECTS) {
+            const sn = this.normalizeForMatch(subj);
+            if (sn.length >= 4 && norm.includes(sn) && sn.length > bestLen) {
+              best = subj;
+              bestLen = sn.length;
+            }
+          }
+          return best;
+        };
+
         for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
+          let line = lines[i];
 
           const matchedDay = dayMap.find(d => d.regex.test(line));
           if (matchedDay) {
@@ -3053,35 +3193,34 @@
             continue;
           }
 
-          if (/^(№|предмет|преподаватель|кабинет|расписание|группы|информационн)/i.test(line)) {
+          if (/^(№|предмет|преподаватель|кабинет|расписание|группы|информационн|землеустрой|дизайнер|юрист)/i.test(line)) {
             continue;
           }
-          if (/^[-—_=\s]+$/.test(line)) continue;
+          if (/^[-—_=\s.]+$/.test(line)) continue;
 
           // Номер пары в начале: "0 Классный час", "1 Физика Е.П. ..."
-          const numMatch = line.match(/^([0-9])\s*[.)]?\s+(.+)/);
+          const numMatch = line.match(/^([0-9])\s*[.)\-]?\s*(.*)/);
           let content = line;
           if (numMatch) {
             currentLessonNum = parseInt(numMatch[1], 10);
-            content = numMatch[2].trim();
+            content = (numMatch[2] || '').trim();
+          } else if (/^[0-9]$/.test(line)) {
+            currentLessonNum = parseInt(line, 10);
+            continue;
           } else {
-            // иногда номер на отдельной строке, а предмет на следующей — пропускаем голые цифры
-            if (/^[0-9]$/.test(line)) {
-              currentLessonNum = parseInt(line, 10);
-              continue;
+            // если в строке есть известный предмет — инкремент номера
+            if (findSubjectInLine(line) && currentLessonNum < 10) {
+              currentLessonNum += 1;
             }
-            // без номера — инкремент
-            if (currentLessonNum < 10) currentLessonNum += 1;
           }
 
           if (!content || /^[-—_]+$/.test(content)) continue;
 
-          // Двойные предметы со звёздами
+          // Двойные предметы со звёздами / слэшем
           if (parseDualWeekLine(content, currentDay, currentLessonNum)) {
             continue;
           }
 
-          // Одиночная звезда
           let weekType = 'both';
           if (/(\*{2}|★{2}|☆{2})/.test(content)) weekType = '2';
           else if (/(\*{1}|★{1}|☆{1})/.test(content)) weekType = '1';
@@ -3089,22 +3228,24 @@
           const teacher = this.extractTeacher(content);
           const room = this.extractRoom(content);
 
-          // subject = всё минус teacher минус room минус звёзды
-          let subjectPart = content
-            .replace(/[★☆*]+/g, ' ')
-            .replace(/\b\d{2,4}(?:\s*[/,]\s*\d{2,4})?\s*$/, '')
-            .replace(/с\s*\/\s*зал|с\/зал|зал\s*$/i, '')
-            .trim();
-          if (teacher) {
-            subjectPart = subjectPart.replace(teacher, '').replace(/\s*,\s*$/, '').trim();
+          // 1) пробуем вытащить предмет словарём из всей строки
+          let subjectPart = findSubjectInLine(content);
+          if (!subjectPart) {
+            subjectPart = content
+              .replace(/[★☆*]+/g, ' ')
+              .replace(/\b\d{2,4}(?:\s*[/,]\s*\d{2,4})?\s*$/, '')
+              .replace(/с\s*\/\s*зал|с\/зал|зал\s*$/i, '')
+              .trim();
+            if (teacher) {
+              subjectPart = subjectPart.replace(teacher, '').replace(/\s*,\s*$/, '').trim();
+            }
+            subjectPart = this.correctSubjectByDictionary(subjectPart) || subjectPart;
           }
-          // убрать лишние куски после предмета (если OCR склеил колонки)
-          subjectPart = subjectPart.replace(/\s{2,}/g, ' ').trim();
 
           pushEntry(currentDay, currentLessonNum, subjectPart, teacher, room, weekType);
         }
 
-        // Если OCR не смог прочитать декоративный шрифт — пустой черновик для ручного заполнения
+        // Если OCR почти ничего не дал — черновик для ручного заполнения
         if (results.length === 0) {
           const days = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница'];
           days.forEach((d, dIdx) => {
@@ -3247,15 +3388,16 @@
           this.showToast('Изменять расписание уроков может только Староста или Зам. старосты');
           return;
         }
-        // Финальная очистка: предмет по словарю, учитель и кабинет отдельно
+        // Финальная очистка: предмет и преподаватель по словарям, кабинет отдельно
         const cleaned = (this.state.pendingAIClasses || []).map(c => {
           let subject = this.correctSubjectByDictionary(c.subject || '') || this.sanitizeSubjectName(c.subject || '');
-          if (!subject) return null;
-          const teacher = this.sanitizeRecognizedText(c.teacher || '') || '';
+          if (!subject || /^(пара|урок|предмет)/i.test(subject)) return null;
+          const teacher = this.correctTeacherByDictionary(c.teacher || '') || this.sanitizeRecognizedText(c.teacher || '') || '';
           let room = this.sanitizeRecognizedText(c.room || '') || '';
           if (room && !/каб|зал|ауд/i.test(room) && /^\d/.test(room)) {
             room = `Каб. ${room}`;
           }
+          if (/зал/i.test(room) && !/каб/i.test(room)) room = 'зал';
           if (!room) room = 'Каб. по расписанию';
           return { ...c, subject, teacher, room };
         }).filter(Boolean);
